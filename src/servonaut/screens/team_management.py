@@ -29,6 +29,7 @@ from servonaut.services.team_sharing import (
     already_shared,
     server_address,
     share_candidates,
+    same_address_conflicts,
     share_payload,
     shared_custom_servers,
 )
@@ -295,6 +296,7 @@ class TeamManagementScreen(Screen):
                             id="select_share_address",
                         ),
                         Static("", id="share_address_note"),
+                        Static("", id="share_same_address_note"),
                         Input(
                             placeholder="SSH username (optional — leave blank for cloud default)",
                             id="input_share_username",
@@ -441,6 +443,7 @@ class TeamManagementScreen(Screen):
         self.query_one("#share_address_note", Static).display = False
         select = self.query_one("#select_share_instance", Select)
         candidates, _, _ = share_candidates(instances, self._shared_servers)
+        self._show_same_address_note(instances)
         by_id = {str(row.get("id")): row for row in candidates}
         options = [(Text(self._share_option_label(by_id[key])), key)
                    for _label, key in self._build_share_options(candidates)]
@@ -454,6 +457,21 @@ class TeamManagementScreen(Screen):
         select.value = options[0][1]
         self._prefill_share_connection_inputs(options[0][1])
         select.focus()
+
+    def _show_same_address_note(self, instances: list[dict]) -> None:
+        """Name the servers the picker leaves out because another server holds their address."""
+        conflicts = same_address_conflicts(instances, self._shared_servers)
+        note = self.query_one("#share_same_address_note", Static)
+        note.display = bool(conflicts)
+        lines = [
+            f"{self._display_server_name(name)}: same address as {self._display_server_name(holder)}"
+            + (", which is already shared" if shared else "")
+            for name, holder, shared in conflicts
+        ]
+        note.update(Text(
+            "Not listed: " + "; ".join(lines) + ". A team shares one server per address and port "
+            "(one share per address for now), so another login on the same machine cannot be shared."
+        ))
 
     def _prefill_share_connection_inputs(self, instance_id: str) -> None:
         """Pre-populate the username / port inputs from the selected instance.

@@ -1613,6 +1613,69 @@ def test_share_payload_uses_the_address_chosen_for_the_server() -> None:
     assert SHARE_ADDRESS not in share_payload({**server, SHARE_ADDRESS: "10.0.1.5"})
 
 
+# Two hosting accounts on one machine: same host and port, different logins.
+def _account(name: str, username: str) -> dict:
+    return {"id": f"custom-{name}", "name": name, "public_ip": "9.9.9.9", "private_ip": "9.9.9.9",
+            "port": 22, "username": username, "is_custom": True}
+
+
+_SITE_A, _SITE_B = _account("site-a", "alpha"), _account("site-b", "beta")
+
+
+def test_same_address_conflicts_name_the_server_that_holds_the_address() -> None:
+    from servonaut.services.team_sharing import same_address_conflicts
+
+    shared = [{"id": "srv-1", "name": "site-a", "hostname": "9.9.9.9", "instance_id": "custom-site-a"}]
+    assert same_address_conflicts([_SITE_A, _SITE_B], shared) == [("site-b", "site-a", True)]
+    assert same_address_conflicts([_SITE_A, _SITE_B], []) == [("site-b", "site-a", False)]
+    # A server's own share is not a conflict.
+    assert same_address_conflicts([_SITE_A], shared) == []
+
+
+class TestOneSharePerAddress:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("first_shared", [True, False])
+    async def test_share_form_says_why_a_second_login_on_one_address_is_not_listed(self, first_shared):
+        app = _WrapperApp(
+            auth_service=_make_auth_service(authenticated=True), team_service=_make_team_service(),
+            instances=[dict(_SITE_A), dict(_SITE_B)],
+        )
+        async with app.run_test(headless=True) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._current_team_slug = "eng"
+            screen._current_team_role = "owner"
+            if first_shared:
+                screen._shared_servers = [{"id": "srv-1", "name": "site-a", "hostname": "9.9.9.9",
+                                           "instance_id": "custom-site-a"}]
+            screen._show_share_server_form(app.instances)
+            await pilot.pause()
+            options = [str(label) for label, _value in screen.query_one("#select_share_instance", Select)._options]
+            note = screen.query_one("#share_same_address_note", Static)
+            shown, text = note.display, str(note.render())
+
+        assert not any("site-b" in option for option in options)
+        assert shown is True
+        assert "site-b: same address as site-a" in text
+        assert ("which is already shared" in text) is first_shared
+        assert "one share per address for now" in text
+
+    @pytest.mark.asyncio
+    async def test_share_form_has_no_note_when_every_address_is_distinct(self):
+        app = _WrapperApp(
+            auth_service=_make_auth_service(authenticated=True), team_service=_make_team_service(),
+            instances=[dict(_SITE_A), {**_SITE_B, "public_ip": "8.8.8.8", "private_ip": "8.8.8.8"}],
+        )
+        async with app.run_test(headless=True) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._current_team_slug = "eng"
+            screen._current_team_role = "owner"
+            screen._show_share_server_form(app.instances)
+            await pilot.pause()
+            assert screen.query_one("#share_same_address_note", Static).display is False
+
+
 # ---------------------------------------------------------------------------
 # Shared servers: listed in the server list, connected from here
 # ---------------------------------------------------------------------------

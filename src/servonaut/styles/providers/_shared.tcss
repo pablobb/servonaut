@@ -191,7 +191,8 @@
     display: none;
 }
 
-#share_address_note {
+#share_address_note,
+#share_same_address_note {
     color: $text-muted;
     margin: 0 0 1 0;
 }

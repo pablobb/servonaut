@@ -123,6 +123,43 @@ def share_candidates(
     return offered, len(omitted), missing
 
 
+def _name(server: Mapping[str, Any]) -> str:
+    return str(server.get("name") or server.get("id") or "")
+
+
+def same_address_conflicts(
+    instances: Sequence[Mapping[str, Any]], shared: Sequence[Mapping[str, Any]],
+) -> list[tuple[str, str, bool]]:
+    """``(name, holder, holder_is_shared)`` for each server that :func:`share_candidates`
+    leaves out because ANOTHER server at the same address and port holds it: one the
+    team shares (*holder_is_shared*), or one listed before it.
+
+    A share is identified by its address and port, so several logins on one machine
+    (hosting accounts) cannot each be shared yet. A server's own share is no conflict.
+    """
+    conflicts: list[tuple[str, str, bool]] = []
+    offered: list[dict[str, Any]] = []
+    for instance in instances:
+        if instance.get("is_shared") is True:
+            continue
+        holder = next((row for row in shared if _same_server(instance, row)), None)
+        holder_is_shared = holder is not None
+        if holder is None:
+            holder = next((row for row in offered if _same_server(instance, row)), None)
+        if holder is None:
+            if server_address(instance):
+                offered.append({**instance, "instance_id": instance.get("id")})
+            continue
+        holder_id = str(holder.get("instance_id") or "")
+        own_id = str(instance.get("id") or "")
+        another = holder_id != own_id if holder_id else (
+            instance.get("is_custom") is True and _name(holder) != _name(instance)
+        )
+        if another:
+            conflicts.append((_name(instance), _name(holder), holder_is_shared))
+    return conflicts
+
+
 def share_payload(instance: Mapping[str, Any]) -> dict[str, Any]:
     """Public connection fields only: no local key paths, credentials or flags."""
     payload: dict[str, Any] = {

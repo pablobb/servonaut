@@ -330,6 +330,9 @@ _ALLOWLIST: List[AllowlistEntry] = [
     AllowlistEntry("screens/team_management.py", "_prefill_share_address", "update",
                    "Share Server address note — fixed explanatory text; the addresses "
                    "are only in the picker's options, redacted by _display_server_address."),
+    AllowlistEntry("screens/team_management.py", "_show_same_address_note", "update",
+                   "Share Server note on servers left out for a shared address — server "
+                   "names go through _display_server_name, which redacts them in demo mode."),
 
     # memory.py — sync status and AI summary update UI labels, not raw data.
     AllowlistEntry(
