@@ -718,3 +718,61 @@ async def test_a_failed_bind_is_logged_once_with_the_shown_name_and_reason(
     assert line.endswith(": this server already has a vault key")
     assert ("web-1" in line) is not demo
     assert host_key.split()[1] not in line and "9.9.9.9" not in line
+
+
+def _custom() -> dict:
+    return {"id": "custom-lab-1", "name": "lab-1", "public_ip": "9.9.9.9", "private_ip": "9.9.9.9",
+            "username": "deploy", "port": 22, "is_custom": True}
+
+
+@pytest.mark.asyncio
+async def test_your_own_key_for_a_custom_server_says_up_front_what_the_service_may_refuse() -> None:
+    app = _Host([_custom()])
+    async with app.run_test() as pilot:
+        await _start(pilot)
+        assert isinstance(app.screen, VaultBindingModal)
+        await _settle(pilot, lambda: app.screen.query_one("#vault_bind_item", Select).value == KEY_ITEM)
+        text = str(app.screen.query_one("#vault_bind_scope", Static).render())
+        assert "do not accept vault keys of your own for custom servers yet" in text
+        assert "team's vault key" in text
+        assert not app.screen.query_one("#vault_bind_confirm", Button).disabled
+
+    assert app.vault_command_service.vault_calls == [None]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(160, 50), (100, 30)])
+async def test_once_refused_your_own_key_for_a_custom_server_is_refused_before_any_choice(
+    size: tuple[int, int],
+) -> None:
+    app = _Host([_custom()])
+    app.vault_command_service.custom_personal_keys_refused = True
+    async with app.run_test(size=size) as pilot:
+        await _start(pilot)
+        assert isinstance(app.screen, VaultBindingModal)
+        message = app.screen.query_one("#vault_bind_scope", Static)
+        text = str(message.render())
+        confirm = app.screen.query_one("#vault_bind_confirm", Button)
+        assert "does not accept vault keys for custom servers yet" in text and "Share" in text
+        assert confirm.disabled and app.screen.query_one("#vault_bind_vault", Select).disabled
+        assert app.screen.region.contains_region(message.region)
+        confirm.press()
+        await pilot.pause()
+        assert isinstance(app.screen, VaultBindingModal)
+
+    service = app.vault_command_service
+    assert service.vault_calls == []
+    service.bind_personal.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_shared_custom_server_still_offers_the_teams_key_and_your_own() -> None:
+    app = _Host([_custom(), _shared()])
+    app.vault_command_service.custom_personal_keys_refused = True
+    async with app.run_test() as pilot:
+        await _start(pilot)
+        assert type(app.screen).__name__ == "VaultBindingScopeModal"
+        await _choose_scope(pilot, 0)
+        await _settle(pilot, lambda: isinstance(app.screen, VaultBindingModal))
+        # The team's key is not refused: the service accepts team keys for shared servers.
+        assert app.screen._team == "team-a" and not app.screen._refused

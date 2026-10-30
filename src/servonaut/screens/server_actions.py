@@ -39,6 +39,7 @@ from servonaut.widgets.safe_header import SafeHeader
 from servonaut.widgets.sidebar import Sidebar
 from servonaut.screens._busy_work import BusyJob, BusyWork
 from servonaut.services.vault.auto_bind import MATCHED_BY_KEY_FILE, MATCHED_BY_KEY_PAIR, match_ssh_key
+from servonaut.services.vault.errors import CUSTOM_SERVER_PERSONAL_KEYS
 from servonaut.screens._demo_resolve import (
     connection_instance,
     display_text,
@@ -363,6 +364,15 @@ class VaultBindingModal(ModalScreen[Optional[dict]]):
         binding = instance.get("credential_binding")
         rebinding = isinstance(binding, Mapping) and binding.get("source") == _VAULT_SOURCE
         self._own = own_instance if self._team and not rebinding else None
+        # A key of your own for a custom server needs the Servonaut service to
+        # accept it. Said before any choice; once this service has refused it,
+        # the dialog refuses up front instead of after every choice.
+        self._custom_personal = not self._team and instance.get("is_custom") is True
+        self._refused = (
+            f"Your own vault key cannot be used here: {CUSTOM_SERVER_PERSONAL_KEYS}. Share this server "
+            "with a team (Teams, Share Server) to give it the team's vault key."
+            if self._custom_personal and getattr(service, "custom_personal_keys_refused", False) is True else ""
+        )
         self._trusted_keys: list[str] = []
         # What is on screen, kept raw so a demo-mode toggle can redraw it.
         self._vault_choices: list[dict[str, str]] = []
@@ -429,6 +439,13 @@ class VaultBindingModal(ModalScreen[Optional[dict]]):
         yield Container(*rows, id="vault_bind_modal")
 
     def on_mount(self) -> None:
+        if self._refused:
+            self.query_one("#vault_bind_vault", Select).prompt = "Not available for this server"
+            for selector in ("#vault_bind_vault_search", "#vault_bind_item_search", "#vault_bind_login",
+                             "#vault_bind_host_keys", "#vault_bind_confirm"):
+                self.query_one(selector).disabled = True
+            self.query_one("#vault_bind_cancel", Button).focus()
+            return
         self.run_worker(self._load_vaults(), group="vault_bind_choices", exclusive=True)
         if self._shows_host_keys:
             self.run_worker(self._load_trusted_host_keys(), group="vault_bind_host_keys")
@@ -436,7 +453,7 @@ class VaultBindingModal(ModalScreen[Optional[dict]]):
     @property
     def _shows_host_keys(self) -> bool:
         """Whether the dialog lists the host keys this machine trusts (and can fetch them)."""
-        return not self._team or self._own is not None
+        return (not self._team and not self._refused) or self._own is not None
 
     def _suggested_login(self) -> str:
         """The login SSH would use for this server today, so a binding keeps it."""
@@ -468,6 +485,12 @@ class VaultBindingModal(ModalScreen[Optional[dict]]):
         return value
 
     def _scope_text(self) -> str:
+        if self._refused:
+            return self._refused
+        if self._custom_personal:
+            return ("Your server: the key is used only by you. Some Servonaut services do not accept "
+                    "vault keys of your own for custom servers yet, and Bind then says so; sharing this "
+                    "server with a team gives it the team's vault key.")
         if self._team:
             return f"Shared server in team {self._team}: everyone in the team uses this key."
         return "Your server: the key is used only by you."
@@ -761,6 +784,8 @@ class VaultBindingModal(ModalScreen[Optional[dict]]):
             return
         if event.button.id != "vault_bind_confirm":
             self.dismiss(None)
+            return
+        if self._refused:
             return
         vault_id = self.query_one("#vault_bind_vault", Select).value
         item_id = self.query_one("#vault_bind_item", Select).value

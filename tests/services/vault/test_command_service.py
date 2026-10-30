@@ -1987,12 +1987,15 @@ async def test_binding_a_custom_server_on_a_service_without_support_says_so() ->
         side_effect=APIError(code="not_found", message="x", status=404),
     )
 
+    assert service.custom_personal_keys_refused is False
     with pytest.raises(VaultUserError, match="does not accept vault keys for custom servers yet"):
         await service.bind_personal(
             vault_id="11111111-1111-4111-8111-111111111111", item_id="22222222-2222-4222-8222-222222222222",
             provider="custom", instance_id="Web 1", hostname="192.0.2.10", port=22, login="deploy",
             host_keys=["ssh-ed25519 AAAA"],
         )
+    # Remembered for this session: the next attempt is refused before any choice.
+    assert service.custom_personal_keys_refused is True
 
 @pytest.mark.asyncio
 async def test_next_step_reads_vaults_only_once_the_identity_is_confirmed() -> None:

@@ -89,6 +89,11 @@ NO_LOCAL_IDENTITY = (
 )
 
 
+# The service has no personal vault bindings for custom servers (yet): a team's
+# key, on a server the team shares, is the way to a vault key for one.
+CUSTOM_SERVER_PERSONAL_KEYS = "this Servonaut service does not accept vault keys for custom servers yet"
+
+
 # A bound server's address or port is not the one its vault key was bound to:
 # the pinned host keys belong to the old address, so the key is not used.
 SERVER_MOVED_SINCE_BINDING = (

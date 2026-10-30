@@ -37,6 +37,7 @@ from .ca_pins import CaPins
 from .ca_enrollment import CaEnrollmentExecutor, EnrollmentResult, deliver_krl, enrollment_error_code
 from .display import terminal_safe
 from .errors import (
+    CUSTOM_SERVER_PERSONAL_KEYS,
     NO_LOCAL_IDENTITY,
     RECOVERY_KEY_NOT_A_KEY,
     RECOVERY_KEY_NOT_THIS_IDENTITY,
@@ -273,6 +274,9 @@ class VaultCommandService:
         self._leases: list[VaultSshLease] = []
         # Bumped by every own-server binding made here (see binding_generation).
         self._binding_generation = 0
+        # Set once the service refused a key of the user's own for a custom
+        # server (it has no such bindings yet): later attempts are refused up front.
+        self.custom_personal_keys_refused = False
         self._pending_identity_reset: PendingIdentityReset | None = None
         self._device_pending_events: list[dict[str, Any]] = []
         self._device_pending_callback: Callable[[Mapping[str, Any]], Any] | None = None
@@ -1905,9 +1909,8 @@ class VaultCommandService:
             )
         except APIError as exc:
             if normalized_provider == CUSTOM_PROVIDER and exc.status == 404:
-                raise VaultUserError(
-                    "this Servonaut service does not accept vault keys for custom servers yet"
-                ) from exc
+                self.custom_personal_keys_refused = True
+                raise VaultUserError(CUSTOM_SERVER_PERSONAL_KEYS) from exc
             raise
         self._binding_generation += 1
         return result
